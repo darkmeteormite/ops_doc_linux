@@ -1,0 +1,124 @@
+before_script:
+  - JOB_NAME=( $CI_BUILD_NAME ) && export SSH_HOST=${JOB_NAME[1]} && echo $SSH_HOST
+  - RUN_MODE_SETTING=production
+  - date
+  - git status
+  - git show && echo $?
+stages:
+  - deploy_staging
+  - deploy_production
+  - re_trigger_deploy
+.rsync_artifacts:
+#    JOB_NAME=( $CI_BUILD_NAME ) && export SSH_HOST=${JOB_NAME[1]} && echo $SSH_HOST
+  script: &rsync_artifacts |
+    rsync -rtlpvz --delete $CI_PROJECT_DIR/ $SSH_USER@$SSH_HOST:$PROD_BASE_DIR/ --exclude='.git' --exclude='.gitlab-ci.yml' --exclude='.gitignore' --exclude='app/tmp/' --exclude='app/logs/'  --exclude='app/data/'
+    ssh $SSH_USER@$SSH_HOST "cd $PROD_BASE_DIR/ && mkdir -p app/data/huoban app/data/logs app/logs/exception app/logs/xhprof app/logs/api_server app/logs/api_server/error app/logs/api_server/success app/logs/queue app/logs/monitor"
+    ssh $SSH_USER@$SSH_HOST "sudo chmod  -R 777 $PROD_BASE_DIR/app/logs $PROD_BASE_DIR/app/tmp $PROD_BASE_DIR/app/data "
+    ssh $SSH_USER@$SSH_HOST "sudo chown user_00:users $PROD_BASE_DIR -R"
+    date
+.reload_php7_fpm:
+  script: &reload_php7_fpm |
+    ssh $SSH_USER@$SSH_HOST "sudo /bin/bash -c 'date >> /tmp/ci.log; /etc/init.d/php7-fpm reload >>/tmp/ci.log 2>&1' &"
+.restart_fifo_queue:
+  script: &restart_fifo_queue |
+    ssh $SSH_USER@$SSH_HOST "sudo /bin/bash -c 'date >> /tmp/ci.log; export RUN_MODE=${RUN_MODE_SETTING}; /bin/bash ${PROD_BASE_DIR}/app/misc/fifo_queue.sh batch_restart >>/tmp/ci.log 2>&1' &"
+.restart_fifo_consumer_execute_low:
+  script: &restart_fifo_consumer_execute_low |
+    ssh $SSH_USER@$SSH_HOST "sudo /bin/bash -c 'date >> /tmp/ci.log; export RUN_MODE=${RUN_MODE_SETTING}; /bin/bash ${PROD_BASE_DIR}/app/misc/fifo_queue.sh restart consumer_execute_low >>/tmp/ci.log 2>&1' &"
+.restart_fifo_highly_occupied:
+  script: &restart_fifo_highly_occupied |
+    ssh $SSH_USER@$SSH_HOST "sudo /bin/bash -c 'date >> /tmp/ci.log; export RUN_MODE=${RUN_MODE_SETTING}; /bin/bash ${PROD_BASE_DIR}/app/misc/fifo_queue.sh restart highly_occupied >>/tmp/ci.log 2>&1' & "
+.deploy_production: &deploy_production
+  stage: deploy_production
+  environment: production
+  only:
+    - master
+    - triggers
+  # when: manual
+.deploy_staging: &deploy_staging
+  stage: deploy_staging
+  environment: staging
+  when: manual
+.deploy_staging_template: &deploy_staging_template
+  <<: *deploy_staging
+  script:
+    - '[ "${DEPLOY_PRODUCTION}" != "true" ] || exit 0'
+    - *rsync_artifacts
+    - *reload_php7_fpm
+    - export RUN_MODE_SETTING=beta
+    - *restart_fifo_queue
+    - date
+.deploy_production_template: &deploy_production_template
+  <<: *deploy_production
+  script:
+    - '[ "${DEPLOY_PRODUCTION}" != "true" ] && exit 0'
+    - *rsync_artifacts
+    - *reload_php7_fpm
+# ################上面是模板，下面是调用配置################
+# 发布到API3服务器
+deploy_production $IP1: *deploy_production_template
+# 发布到API4服务器
+deploy_production $IP2: *deploy_production_template
+# 发布到API5服务器
+deploy_production $IP3: *deploy_production_template
+# 发布到API6,预发布环境
+deploy_staging $IP4: *deploy_staging_template
+# 发布到API7服务器
+deploy_production $IP5: *deploy_production_template
+# 发布到CUS1服务器
+deploy_production $IP6: *deploy_production_template
+# 发布到CUS2 HBUC服务器
+deploy_production $IP7: *deploy_production_template
+# 发布到CUS3 HBUC服务器
+deploy_production $IP8: *deploy_production_template
+# 发布到API8服务器
+deploy_production $IP9: *deploy_production_template
+# 发布到MQ服务器
+deploy_production $IP10:
+  <<: *deploy_production
+  script:
+    - '[ "${DEPLOY_PRODUCTION}" != "true" ] && exit 0'
+    - *rsync_artifacts
+    - *reload_php7_fpm
+    - *restart_fifo_queue
+    - date
+# 发布到upload服务器
+deploy_production $IP11:
+  <<: *deploy_production
+  script:
+    - '[ "${DEPLOY_PRODUCTION}" != "true" ] && exit 0'
+    - *rsync_artifacts
+    - *reload_php7_fpm
+    - *restart_fifo_consumer_execute_low
+    - date
+# 发布到MQ2服务器,excle导入导出的队列
+deploy_production $IP12:
+  <<: *deploy_production
+  script:
+    - '[ "${DEPLOY_PRODUCTION}" != "true" ] && exit 0'
+    - *rsync_artifacts
+    - *reload_php7_fpm
+    - *restart_fifo_highly_occupied
+    - date
+# 发布到开发者平台
+deploy_dev $IP13:
+  <<: *deploy_production
+  script:
+    - '[ "${DEPLOY_PRODUCTION}" != "true" ] && exit 0'
+    - *rsync_artifacts
+    - *reload_php7_fpm
+    - export RUN_MODE_SETTING=debug
+    - *restart_fifo_queue
+    - date
+trigger_build:
+  stage: re_trigger_deploy
+  environment: production
+  script:
+    - echo ${CI_PROJECT_ID}
+    - "curl -X POST -F token=${CI_TRIGGER_TOKEN} -F ref=master -F variables[DEPLOY_PRODUCTION]=true https://gitlab.huobandev.com/api/v3/projects/${CI_PROJECT_ID}/trigger/builds"
+  when: manual
+  tags:
+    - huoban_api
+# 手工回退的方法:
+# 1. 回退的SHA-1点打tag.例如: revert-20170322, 并把tag推送到服务器.
+# 2. 模拟curl -X POST -F token=${CI_TRIGGER_TOKEN} -F "ref=revert-20170322" -F "variables[DEPLOY_PRODUCTION]=true" https://gitlab.huobandev.com/api/v3/projects/${CI_PROJECT_ID}/trigger/builds

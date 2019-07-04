@@ -1,0 +1,337 @@
+cat 00_input_beats.conf
+
+	input {
+	  beats {
+	    port => 5044
+	  }
+	}
+
+cat 01_input_gelf.conf
+	
+	input {
+	  gelf {
+	    port => 12201
+	    type => "gelf"
+	  }
+	}
+
+cat 10_filter_output_huoban.conf
+
+	filter {
+	  if [type] == "user_behaviour" {
+	    json {
+	      source => "message"
+	      target => "data"
+	    }
+	    date {
+	      match => ["[data][datetime]", "yyyy-MM-dd HH:mm:ss"]
+	    }
+	  }
+
+	  if [type] == "api_call" {
+	    json {
+	      source => "message"
+	    }
+	    date {
+	      match => ["datetime", "UNIX"]
+	    }
+	  }
+	}
+
+	output {
+	  if [type] == "user_behaviour" {
+	    elasticsearch {
+	      hosts => ["10.46.68.114:9200"]
+	      index => "huoban-user-behaviour-%{+YYYY.MM.dd}"
+	      document_type => "%{type}"
+	      workers => 1
+	      flush_size => 2000
+	      idle_flush_time => 5
+	      template_overwrite => true
+	    }
+	  }
+
+	 if [type] == "api_call" {
+	    elasticsearch {
+	      hosts => ["10.46.68.114:9200"]
+	      index => "huoban-api-call-%{+YYYY.MM.dd}"
+	      document_type => "%{type}"
+	      workers => 5
+	      flush_size => 2000
+	      idle_flush_time => 5
+	      template_overwrite => true
+	    }
+	  }
+	}
+
+cat 11_filter_output_mysql-slow.conf
+	
+	filter {
+	  if [type] == "mysql_slow" {
+	    # drop time tag
+	    if [message] =~ "^# Time:.*$" {
+	      drop {}
+	    }
+	    multiline {
+	      pattern => "^# User@Host:"
+	      negate => true
+	      what => "previous"
+	    }
+	    grok {
+	        match => {
+	          message => "(?m)^# User@Host: %{USER:user}\[[^\]]+\]\s@\s+(?:(?<clienthost>\S*) )?\[(?:%{IP:clientip})?\]\s*Id:\s%{INT:thread_id:int}\n# Schema:\s%{USER:database_name}\s+ Last_errno:\s+%{INT:last_error:int}\s+Killed:\s+%{INT:killed:int}\n# Query_time:\s+%{NUMBER:query_time:float}\s+Lock_time:\s+%{NUMBER:lock_time:float}\s+Rows_sent:\s+%{NUMBER:rows_sent:int}\s+Rows_examined: %{NUMBER:rows_examined:int}\s+Rows_affected:\s+%{NUMBER:rows_affected:int}\n# Bytes_sent:\s%{NUMBER:bytes_sent:int}\n(?:use %{DATA:database};\s*)?SET timestamp=%{NUMBER:timestamp};\s*(?<query>(?<action>\w+)\s+.*)(?:\n#\s+Time)?.*$"
+	        }
+	    }
+
+	    mutate {
+	      gsub => [ "query", "\n", " " ]
+	      gsub => [ "query", "  ", " " ]
+	      add_tag => "mutated_mysql_query"
+	    }
+
+	    date {
+	      match => [ "timestamp", "UNIX" ]
+	      remove_field => [ "timestamp" ]
+	    }
+	  }
+	}
+
+	output {
+	  if [type] == "mysql_slow" {
+	    elasticsearch {
+	      hosts => ["10.46.68.114:9200"]
+	      index => "mysql-slow-log-%{+YYYY.MM.dd}"
+	      document_type => "%{type}"
+	      workers => 1
+	      flush_size => 500
+	      idle_flush_time => 1
+	      template_overwrite => true
+	    }
+	  }
+	}
+
+cat 12_filter_output_nginx.conf
+
+	filter {
+	  if [type] == "nginx_access_log" {
+	    json {
+	      source => "message"
+	      target => "nginx"
+	    }
+	  }
+	  if [type] == "nginx_error_log" {
+	    grok {
+	        match => { "message" => "(?<datetime>\d\d\d\d/\d\d/\d\d \d\d:\d\d:\d\d) \[(?<errtype>\w+)\] \S+: \*\d+ (?<errmsg>[^,]+), (?<errinfo>.*)$" }
+	    }
+	    mutate {
+	        rename => [ "host", "fromhost" ]
+	        gsub => [ "errmsg", "too large body: \d+ bytes", "too large body" ]
+	    }
+	  }
+
+	}
+
+	output {
+	  if [type] == "nginx_access_log" {
+	    elasticsearch {
+	      hosts => ["10.46.68.114:9200"]
+	      index => "nginx-access-log-%{+YYYY.MM.dd}"
+	      document_type => "%{type}"
+	      workers => 1
+	      flush_size => 2000
+	      idle_flush_time => 5
+	      template_overwrite => true
+	    }
+	  }
+	  if [type] == "nginx_error_log" {
+	    elasticsearch {
+	      hosts => ["10.46.68.114:9200"]
+	      index => "nginx-error-log-%{+YYYY.MM.dd}"
+	      document_type => "%{type}"
+	      workers => 1
+	      flush_size => 500
+	      idle_flush_time => 1
+	      template_overwrite => true
+	    }
+	  }
+	}
+
+cat 14_filter_output_test.conf
+	filter {
+	  ruby {
+	      code => "event['index_day'] = event.timestamp.time.localtime.strftime('%Y.%m.%d')"
+	  }
+	  if [type] == "test" {
+	    json {
+	      source => "message"
+	      target => "data"
+	    }
+	    date {
+	      match => ["[data][datetime]", "yyyy-MM-dd HH:mm:ss"]
+	    }
+	  }
+	}
+
+	output {
+	  if [type] == "test" {
+	    elasticsearch {
+	      hosts => ["10.46.68.114:9200"]
+	      index => "test-%{index_day}"
+	      document_type => "%{type}"
+	      workers => 1
+	      flush_size => 50
+	      idle_flush_time => 1
+	      template_overwrite => true
+	    }
+	  }
+	}
+
+cat 16_filter_output_v2_huoban.conf
+	
+	filter {
+	  if [type] == "v2_user_behaviour" {
+	    json {
+	      source => "message"
+	      target => "huoban"
+	    }
+	    date {
+	      match => ["[huoban][datetime]", "yyyy-MM-dd HH:mm:ss"]
+	    }
+	    ruby {
+	      code => "event['index_day_v2'] = event['huoban']['datetime'].split(' ')[0] || 'nodate'"
+	    }
+	  }
+	}
+
+	output {
+	  if [type] == "v2_user_behaviour" {
+	    elasticsearch {
+	      hosts => ["10.46.68.114:9200"]
+	      index => "v2-huoban-user-behaviour-%{index_day_v2}"
+	      document_type => "%{type}"
+	      workers => 5
+	      flush_size => 2000
+	      idle_flush_time => 5
+	      template_overwrite => false
+	      template => "/opt/logstash/vendor/bundle/jruby/1.9/gems/logstash-output-elasticsearch-2.7.1-java/lib/logstash/outputs/elasticsearch/elasticsearch-template-huoban.json"
+	    }
+	  }
+	}
+
+cat 17_output_gelf.conf
+	
+	output {
+	  if [type] == "gelf" {
+	      elasticsearch {
+	        hosts => ["10.46.68.114:9200"]
+	        index => "docker-%{+YYYY.MM.dd}"
+	      }
+	  }
+	}
+
+cat 18_filter_output_php_error.conf
+	
+	filter {
+	  if [type] == "php_errors" {
+	    grok {
+	        match => {
+	          message => "^\[%{MONTHDAY}-%{MONTH}-%{YEAR}\s%{TIME}\s(?<timezone>\w+/\w+)\]\s(?<php_error_body>.*)$"
+	        }
+	    }
+	  }
+	}
+
+	output {
+	  if [type] == "php_errors" {
+	    elasticsearch {
+	      hosts => ["10.46.68.114:9200"]
+	      index => "php-errors-log-%{+YYYY.MM.dd}"
+	      document_type => "%{type}"
+	      workers => 1
+	      flush_size => 500
+	      idle_flush_time => 1
+	      template_overwrite => true
+	    }
+	  }
+	}
+
+cat 19_output_syslog.conf
+	
+	filter {
+	  if [type] == "syslog" {
+	    grok {
+	      match => { "message" => "%{SYSLOGTIMESTAMP:syslog_timestamp} %{SYSLOGHOST:syslog_hostname} %{DATA:syslog_program}(?:\[%{POSINT:syslog_pid}\])?: %{GREEDYDATA:syslog_message}" }
+	      add_field => [ "received_at", "%{@timestamp}" ]
+	      add_field => [ "received_from", "%{host}" ]
+	    }
+	    syslog_pri { }
+	    date {
+	      match => [ "syslog_timestamp", "MMM  d HH:mm:ss", "MMM dd HH:mm:ss" ]
+	    }
+	  }
+	}
+	output {
+	  if [type] == "syslog" {
+	    elasticsearch {
+	      hosts => ["10.46.68.114:9200"]
+	      index => "syslog-%{+YYYY.MM.dd}"
+	      document_type => "%{type}"
+	      workers => 1
+	      flush_size => 500
+	      idle_flush_time => 5
+	      template_overwrite => true
+	    }
+	  }
+	}
+
+cat 20_localhost.conf
+	
+	input {
+		file {
+			type => "messageslog"
+			path => "/var/log/messages"
+			start_position => "beginning"
+		}
+	}
+
+	output {
+		elasticsearch {
+			hosts => ["10.46.68.114:9200"]
+			index => "system-messages-%{+YYYY.MM.dd}"
+		}
+	}
+
+
+
+收集一个目录的文件到服务器一个目录中
+filter {
+  if [type] == "huoban_app_log" {
+      ruby {
+          code => "event.set('log_file_path', event.get('source').gsub('/data/web/huoban/app/logs/', ''))"
+      }
+  }
+}
+
+output {
+  if [type] == "huoban_app_log" {
+    file {
+      path => "/data/logs/huoban_log/huoban/%{log_file_path}"
+    }
+  }
+}
+
+filter {
+  if [type] == "huoban_v2_app_log" {
+      ruby {
+          code => "event.set('log_file_path', event.get('source').gsub('/data/web/huoban_v2/app/logs/', ''))"
+      }
+  }
+}
+
+output {
+  if [type] == "huoban_v2_app_log" {
+    file {
+      path => "/data/logs/huoban_log/huoban_v2/%{log_file_path}"
+    }
+  }
+}

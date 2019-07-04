@@ -1,0 +1,96 @@
+php安装zip模块
+# wget http://pecl.php.net/get/zip-1.10.2.tgz
+# tar zxvf zip-1.10.2.tgz
+# cd zip-1.10.2
+# /usr/local/php/bin/phpize
+运行了这个zip目录下会自动生成几个文件，其中包括configure
+
+# ./configure --with-php-config=/usr/local/php/bin/php-config
+# make
+# make install
+安装完成后修改一下php.ini
+
+# vim /usr/local/php/etc/php.ini
+加入
+extension=/usr/local/php/lib/php/extensions/no-debug-non-zts-20060613/zip.so
+
+
+
+
+php编译安装常见错误
+checking for BZip2 support... yes checking for BZip2 in default path... not found configure:error:Please reinstall the BZip2 distribution 
+解决办法：yum install bzip2-devel
+
+checking for cURL support... yes checking if we should use cURL for url streams... no checking for cURL in def ault path... not found configure:error:Please reinstall the libcurl distribution - easy.h should be in/include/curl/
+解决办法：yum install curl-devel
+
+checking for curl_multi_strerror in -lcurl... yes checking for QDBM support... no checking for GDBM support... no checking for NDBM support... no configure:error:DBA:Could not find necessary header file(s).
+解决办法：yum install db4-devel
+
+checking for fabsf... yes checking for floorf... yes configure:error:jpeglib.h not found.
+解决办法：yum install libjpeg-devel
+
+checking for fabsf... yes checking for floorf... yes configure:error:jpeglib.h not found.
+解决办法：yum install libjpeg-devel
+
+checking for fabsf... yes checking for floorf... yes checking for jpeg_read_header in -ljpeg... yes configure:error:png.h not found.
+解决办法：yum install libpng-devel
+
+checking for png_write_image in -lpng... yes configure:error:libXpm.(also) not found.
+解决办法：yum install libXpm-devel
+
+checking for bind_textdomain_codeset in -lc... yes checking for GNU MP support... yes configure:error:Unable to locate gmp.h
+解决办法：yum install gmp-devel
+
+checking for utf8_mime2text signature... new checking for U8T_DECOMPOSE... configure:error:utf8_mime2text() has new signature,but U8T_CANONICAL is missing.This should not happen.Check config.log for additional information.
+解决办法：yum install libc-client-devel
+
+checking for LDAP support... yes,shared checking for LDAP Cyrus SASL support... yes configure:error:Cannot find ldap.h
+解决办法：yum install openldap-devel
+
+checking for mysql_set_character_set in -lmysqlclient... yes checking for mysql_stmt_next_result in -lmysqlclient... no checking for Oracle Database OCl8 support... no checking for unixODBC support... configure:error:ODBC header file '/usr/include/sqlext.h' not found!
+解决办法：yum install unixODBC-devel
+
+checking for PostgreSQL support for PDO... yes,shared checking for pg_config... not found configure:error:Cannot find libpq-fe.h. Please specify correct Postgre SQL installation path.
+解决办法：yum install postgresql-devel
+
+checking for sqlite 3 support for PDO... yes,shared checking for PDO includes...(cached) /usr/local/src/php-7.0.1/ext checking for sqlite3 files in default path... not found configure:error:Please reinstall the sqlite3 distribution
+解决办法：yum install sqlite-devel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

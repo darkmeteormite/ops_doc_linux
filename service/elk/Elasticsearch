@@ -1,0 +1,23 @@
+Elasticsearch
+1、计算集群中的文档数量
+curl -XGET 'http://10.26.90.41:9200/_count?pretty' -d '
+{
+	"query": {
+		"match_all": {}
+	}
+}
+'
+
+
+
+
+
+1、事先没有规划好。（完全没有步骤，感觉是走一步看一步）
+2、事先没有测试。
+\
+
+
+yum -y install gcc gcc-c++ bzip2 make yasm nasm
+wget http://ffmpeg.org/releases/ffmpeg-3.3.4.tar.bz2
+
+yasm nasm   gcc gcc-c++

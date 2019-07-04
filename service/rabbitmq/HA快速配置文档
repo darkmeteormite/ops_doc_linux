@@ -1,0 +1,19 @@
+HA快速配置文档
+一、准备工作
+1、准备好2台主机
+2、修改好hosts文件
+3、查看节点信息
+	# rabbitmqctl cluster_status
+4、设置Erlang Cookie
+	# cat .erlang.cookie   #在运行程序的家目录下，并复制到需要添加的集群其他节点
+	注意：记住Erlang节点间通过认证Erlang cookie的方式来允许互相通信。因为rabbitmqctl使用Erlang OTP通信机制来和Rabbit节点通信，运行rabbitmqctl的机器和所要连接的Rabbit节点必须使用相同的Erlang cookie。否则你会得到一个错误。
+二、配置信息
+1、开启主节点，其他节点都关闭
+	# rabbitmqctl stop_app
+2、初始化其他节点的数据
+	# rabbitmqctl reset
+3、加入到集群中主节点(从节点关闭之后在操作）
+	# rabbitmqctl join_cluster rabbit@node#
+4、设置成镜像模式
+	# rabbitmqctl set_policy -p '/www' ha-all "^" '{"ha-mode":"all"}'
+    这行命令在vhost名称为'/www'创建了一个策略，策略名称为ha-all,策略模式为 all 即复制到所有节点，包含新增节点，策略正则表达式为 “^” 表示所有匹配所有队列名称。
