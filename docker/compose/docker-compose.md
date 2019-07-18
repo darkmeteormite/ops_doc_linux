@@ -2,7 +2,7 @@
 *使用官方安装方法
 pip install -U docker-compose
 curl -L "https://github.com/docker/compose/releases/download/1.9.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-
+wget -O /usr/local/bin/docker-compose https://mirrors.aliyun.com/docker-toolbox/linux/compose/1.21.2/docker-compose-Linux-x86_64
 Centos7 安装docker-compose
 	# yum install python-pip
 	# pip install --upgrade pip

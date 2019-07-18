@@ -1,3 +1,9 @@
+0.安装
+  
+  # yum install https://repo.saltstack.com/yum/redhat/salt-repo-latest-2.el7.noarch.rpm
+  # yum -y install salt-master salt-minion
+
+
 1.先了解下管理端（master）常用相关命令
  
  1.1 salt     #主要管理命令
