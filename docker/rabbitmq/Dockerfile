@@ -78,7 +78,7 @@ RUN curl -fSL http://mirrors.aliyun.com/repo/epel-7.repo -o /etc/yum.repos.d/epe
 
 ENV LANG="zh_CN.UTF-8"
 
-COPY rabbitmq.conf /etc/rabbitmq/rabbitmq.conf
+COPY rabbitmq.conf /etc/rabbitmq/rabbitmq.config
 
 EXPOSE 4369 5671 5672 15672 25672
 CMD ["/opt/rabbitmq/sbin/rabbitmq-server"]
