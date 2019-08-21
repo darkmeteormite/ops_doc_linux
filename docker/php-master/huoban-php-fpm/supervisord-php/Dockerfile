@@ -1,4 +1,4 @@
-FROM centos
+FROM centos:7.6.1810
 
 MAINTAINER HuoBan Docker Maintainers "zhangqiang@huoban.com"
 
@@ -34,6 +34,8 @@ RUN set -ex ;\
         	curl-devel \
 		libXrender \
                 pcre-devel \
+		supervisor \
+                crontabs \
 		libXext ; \
 	yum clean all
 
@@ -139,10 +141,12 @@ RUN set -ex \
         && cd redis-3.1.2 \
         && sh /usr/local/bin/phpize \
         && ./configure --with-php-config=/usr/local/bin/php-config \
+        && ln -s /usr/local/bin/php /usr/local/bin/huoban_php \
         && cd /usr/src \
         && rm -rf imagick* \
-        && rm -rf redis*
+        && rm -rf redis* \
+        && mkdir -p /var/log/supervisor
 
+COPY supervisord.conf /etc/supervisord.conf
 
-EXPOSE 9000
-CMD ["php-fpm"]
+CMD ["/usr/bin/supervisord"]
