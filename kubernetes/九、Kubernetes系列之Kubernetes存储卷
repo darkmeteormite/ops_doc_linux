@@ -1,0 +1,445 @@
+九、Kubernetes系列之Kubernetes存储卷
+### 第一章、前言
+
+默认情况下容器的数据都是非持久化的， 在容器消亡以后数据也跟着丢失， 所以 Docker 提供了 Volume 机制以便将数据持久化存储。 类似的， Kubernetes 提供了更强大的 Volume 机制和丰富的插件， 解决了容器数据持久化和容器间共享数据的问题。
+与 Docker 不同， Kubernetes Volume 的生命周期与 Pod 绑定容器挂掉后 Kubelet 再次重启容器时， Volume 的数据依然还在而 Pod 删除时， Volume 才会清理。 
+数据是否丢失取决于具体的 Volume 类型， 比如 emptyDir 的数据会丢失， 而 PV 的数据则不会丢
+PersistentVolume（pv）和PersistentVolumeClaim（pvc）是k8s提供的两种API资源，用于抽象存储细节。管理员关注于如何通过pv提供存储功能而无需关注用户如何使用，同样的用户只需要挂载pvc到容器中而不需要关注存储卷采用何种技术实现。
+pvc和pv的关系与pod和node关系类似，前者消耗后者的资源。pvc可以向pv申请指定大小的存储资源并设置访问模式。
+
+### 第二章、pv pvc相关知识
+
+#### 生命周期
+
+pv和pvc遵循以下生命周期：
+  1.供应准备。管理员在集群中创建多个pv供用户使用。
+　2.绑定。用户创建pvc并指定需要的资源和访问模式。在找到可用pv之前，pvc会保持未绑定状态。
+　3.使用。用户可在pod中像volume一样使用pvc。
+　4.释放。用户删除pvc来回收存储资源，pv将变成“released”状态。由于还保留着之前的数据，这些数据需要根据不同的策略来处理，否则这些存储资源无法被其他pvc使用。
+　5.回收。pv可以设置三种回收策略：保留（Retain），回收（Recycle）和删除（Delete）。 
+　　　保留策略允许人工处理保留的数据。
+　　　删除策略将删除pv和外部关联的存储资源，需要插件支持。
+　　　回收策略将执行清除操作，之后可以被新的pvc使用，需要插件支持。
+
+
+
+#### pv属性
+
+pv拥有以下属性：
+　　容量。目前仅支持存储大小，未来可能支持IOPS和吞吐量等。
+　　访问模式。ReadWriteOnce：单个节点读写。ReadOnlyMany：多节点只读。ReadWriteMany：多节点读写。挂载时只能使用一种模式。
+　　回收策略。目前NFS和HostPath支持回收。 AWS、EBS、GCE、PD和Cinder支持删除。
+　　阶段。分为Available（未绑定pvc）、Bound（已绑定）、Released（pvc已删除但资源未回收）、Failed（自动回收失败）</pre>
+
+#### pvc属性
+
+访问模式。与pv的语义相同。在请求资源时使用特定模式。
+资源。申请的存储资源数量</pre>
+
+#### pv类型
+
+emptyDir
+hostPath
+gcePersistentDisk
+awsElasticBlockStore
+nfs
+iscsi
+flocker
+glusterfs
+rbd
+cephfs
+gitRepo
+secret
+persistentVolumeClaim
+downwardAPI
+azureFileVolume
+................
+........(以下省略)
+
+#### 目前常用Volume 类型 
+
+**emptyDir** 
+
+如果 Pod 设置了 emptyDir 类型 Volume， Pod 被分配到 Node 上时候， 会创建emptyDir， 只要 Pod 运行在 Node 上， emptyDir 都会存在（ 容器挂掉不会导致emptyDir 丢失数据） ， 但是如果 Pod 从 Node 上被删除（ Pod 被删除， 或者 Pod 发生迁移） ， emptyDir 也会被删除， 并且永久丢失。
+
+**hostPath** 
+
+hostPath 允许挂载 Node 上的文件系统到 Pod 里面去。 如果 Pod 需要使用 Node 上的文件， 可以使用 hostPath</pre>
+
+**NFS** 
+
+NFS 是 Network File System 的缩写， 即网络文件系统。 Kubernetes 中通过简单地配置就可以挂载 NFS 到 Pod 中， 而 NFS 中的数据是可以永久保存的， 同时 NFS 支持同时写操作。
+
+**gcePersistentDisk** 
+
+gcePersistentDisk 可以挂载 GCE 上的永久磁盘到容器， 需要 Kubernetes 运行在 GCE的 VM 中
+
+**awsElasticBlockStore** 
+
+awsElasticBlockStore 可以挂载 AWS 上的 EBS 盘到容器， 需要 Kubernetes 运行在AWS 的 EC2 上。
+
+**gitRepo** 
+
+gitRepo volume 将 git 代码下拉到指定的容器路径中
+
+**Projected Volume** 
+
+Projected volume 将多个 Volume 源映射到同一个目录中， 支持 secret、 downwardAPI和 configMap </pre>
+
+### 第三章、简单示例
+
+**1、emptyDir (节点级存储，生命周期与pod相同)**
+```
+# cat emptydir.yaml  #pod中有两个container挂载同一个emptyDir，nginx提供web服务，busybox则循环向挂载目录下的index.html文件写入数据
+apiVersion: v1
+kind: Pod
+metadata:
+  name: emptydir
+  namespace: default
+  labels:
+    app: myapp
+    tier: frontend
+spec:
+  containers:
+  - name: myapp
+    image: ikubernetes/myapp:v1
+    ports:
+    - name: myapp
+      containerPort: 80
+    volumeMounts:
+    - name: html
+      mountPath: /usr/share/nginx/html
+  - name: busybox
+    image: busybox:latest
+    volumeMounts:　　　　 #见pod的volume挂载到container中
+    - name: html  　　　　#名称需要和 volumes中的name一致
+      mountPath: /data   #挂载volume在container中的路径
+    command:
+    - "/bin/sh"
+    - "-c"
+    - "while true; do echo $(date) >> /data/index.html; sleep 2; done"
+  volumes:  　　#创建pod可以使用的volume，可以有多个
+  - name: html  
+    emptyDir: {}  #volume类型，默认不限制使用空间
+```
+**查看pod运行状态，并访问**
+```
+# kubectl apply -f emptydir.yaml
+pod/emptydir created
+
+# kubectl get pods -o wide
+NAME       READY   STATUS    RESTARTS   AGE   IP            NODE               
+emptydir   2/2     Running   0          76s   10.244.3.34   huoban-k8s-node01
+
+# while true; do curl 10.244.3.34; sleep 1; done
+Fri Sep 20 03:34:38 UTC 2019
+Fri Sep 20 03:34:40 UTC 2019
+Fri Sep 20 03:34:42 UTC 2019
+......
+```
+**2、[hostPath](https://kubernetes.io/docs/concepts/storage/volumes#hostpath) (节点级存储，生命周期和node相同)**
+```
+#cat host-path.yaml
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-hostpath
+  namespace: default 
+spec:
+  containers: - name: myapp
+    image: ikubernetes/myapp:v1
+    volumeMounts: - name: html
+      mountPath: /usr/share/nginx/html
+  volumes: - name: html
+    hostPath:
+      path: "/data/pod/volumel"  #依据type的值来确定挂载路径是否需要创建 type: DirectoryOrCreate  #挂载目录不存在则创建
+
+# kubectl apply -f host-path.yaml
+pod/pod-hostpath created
+
+# kubectl get pods -o wide
+NAME           READY   STATUS    RESTARTS   AGE   IP            NODE               
+pod-hostpath   1/1     Running   0          58s   10.244.5.11   huoban-k8s-node03
+```
+**手动创建目录并添加html文件测试**
+```
+# ssh node3 "ls -l /data/pod/volumel"
+.
+# ssh node03 "touch /data/pod/volumel/index.html"
+# ssh node03 "ls -al /data/pod/volumel"
+total 8
+drwxr-xr-x 2 root root 4096 Sep 20 15:00 .
+drwxr-xr-x 3 root root 4096 Sep 20 14:56 ..
+-rw-r--r-- 1 root root    0 Sep 20 15:00 index.html
+
+# echo "node03" > /data/pod/volumel/index.html  #在node03服务器上执行
+# cat /data/pod/volumel/index.html
+node03
+
+# curl 10.244.5.11
+node03
+
+#删除服务，数据还在
+# kubectl delete -f host-path.yaml
+pod "pod-hostpath" deleted
+# ssh node03 "ls -al /data/pod/volumel"
+total 12
+drwxr-xr-x 2 root root 4096 Sep 20 15:00 .
+drwxr-xr-x 3 root root 4096 Sep 20 14:56 ..
+-rw-r--r-- 1 root root    7 Sep 20 15:04 index.html
+```
+**3、NFS (永久存储，生命周期与NFS server相同，不会删除)**
+```
+1、在master上操作
+# cat pod-nfs-vol.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-nfs
+  namespace: default
+spec:
+  containers:
+  - name: myapp
+    image: ikubernetes/myapp:v1
+    volumeMounts:
+    - name: html
+      mountPath: /usr/share/nginx/html
+  volumes:
+  - name: html
+    nfs:
+      path: "/data/volumes/v1"  #该目录在NFS server上必须存在并可以被集群中node节点可以挂载，node节点需要安装nfs-utils，可以执行NFS 挂载操作      
+      server: 172.16.17.10 #该server需要安装NFS 服务，并共享path中的目录或文件
+
+
+2、在其中一台node节点上做测试
+# mount -t nfs 172.16.17.10:/data/volumes/v1 /mnt  在任意一节点上进行挂载测试，确定可以挂载是否可以成功，需要安装nfs-utils工具包
+# df -h |grep mnt  #查看挂载状态
+172.16.17.10:/data/volumes/v1 77G 3.5G 74G 5% /mnt
+# umount /mnt  #确认没有问题后卸载
+
+3、测试运行
+# kubectl apply -f pod-nfs-vol.yaml #创建pod
+pod "pod-nfs" created
+# kubectl get pod -o wide
+NAME READY STATUS RESTARTS AGE IP NODE
+pod-nfs 1/1 Running 0 17s 10.244.1.154 huoban-k8s-node01 
+
+4、在节点上测试创建文件
+#在NFS server上添加一个测试HTML文件
+# cd /data/volumes/v1/   #挂载目录
+# echo "<h1>NFS Server volume v1</h1>" > index.html
+
+5、访问一下并测试数据是否丢失
+# curl 10.244.1.154
+<h1>NFS Server volume v1</h1>
+# kubectl delete pod pod-nfs   #删除刚刚创建的pod
+pod "pod-nfs" deleted
+# kubectl apply -f pod-nfs-vol.yaml  #再重新创建
+pod "pod-nfs" created
+
+# kubectl get pod -o wide #查看新创建后pod所在的node节点级IP地址
+NAME READY STATUS RESTARTS AGE IP NODE
+pod-nfs 1/1 Running 0 17s 10.244.2.192 huoban-k8s-node02
+
+# curl 10.244.2.192  #再次访问一下，文件依然存在，文件不会随着pod的终结而销毁
+<h1>NFS Server volume v1</h1>
+```
+**4、创建PV和PVC（用NFS创建）**
+```
+NFS server上创建多个挂载目录，并共享
+
+# cat /etc/exports
+/data/volumes/v1  172.16.0.0/16(rw,no_root_squash)
+/data/volumes/v2  172.16.0.0/16(rw,no_root_squash)
+/data/volumes/v3  172.16.0.0/16(rw,no_root_squash)
+/data/volumes/v4  172.16.0.0/16(rw,no_root_squash)
+/data/volumes/v5  172.16.0.0/16(rw,no_root_squash)
+
+# ll /data/volumes/
+总用量 0
+drwxr-xr-x 2 root root 24 2019-09-20 16:28 v1
+drwxr-xr-x 2 root root 24 2019-09-20 16:28 v2
+drwxr-xr-x 2 root root 24 2019-09-20 16:28 v3
+drwxr-xr-x 2 root root 24 2019-09-20 16:28 v4
+drwxr-xr-x 2 root root 24 2019-09-20 16:28 v5
+
+# exportfs 
+/data/volumes/v1 172.16.0.0/16
+/data/volumes/v2 172.16.0.0/16
+/data/volumes/v3 172.16.0.0/16
+/data/volumes/v4 172.16.0.0/16
+/data/volumes/v5 172.16.0.0/16
+# showmount -e
+Export list for huoban-k8s-nfs:
+/data/volumes/v5 172.16.0.0/16
+/data/volumes/v4 172.16.0.0/16
+/data/volumes/v3 172.16.0.0/16
+/data/volumes/v2 172.16.0.0/16
+/data/volumes/v1 172.16.0.0/16
+
+将NFS server共享的目录创建为PV
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nfs-vol-001   #不允许定义名称空间，应为pv是属于集群级别的
+spec:
+  capacity: #pv的大小
+    storage: 5Gi
+  accessModes:    #访问的模型，具体访问模型官方文档链接： https://kubernetes.io/docs/concepts/storage/persistent-volumes#access-modes
+    - ReadWriteOnce  #支持的访问模型与具体的共享存储设备类型有关，具体见上方链接
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Recycle
+  nfs:
+    path: /data/volumes/v1
+    server: 172.16.17.10
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata: 
+  name: nfs-vol-02
+spec:
+  capacity: 
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Recycle
+  nfs:
+    path: /data/volumes/v2
+    server: 172.16.17.10
+---  
+apiVersion: v1
+kind: PersistentVolume
+metadata: 
+  name: nfs-vol-03
+spec:
+  capacity: 
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Recycle
+  nfs:
+    path: /data/volumes/v3
+    server: 172.16.17.10
+---  
+apiVersion: v1
+kind: PersistentVolume
+metadata: 
+  name: nfs-vol-04
+spec:
+  capacity: 
+    storage: 15Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Recycle
+  nfs:
+    path: /data/volumes/v4
+    server: 172.16.17.10
+---  
+apiVersion: v1
+kind: PersistentVolume
+metadata: 
+  name: nfs-vol-05
+spec:
+  capacity: 
+    storage: 20Gi
+  accessModes:
+    - ReadWriteOnce
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Recycle
+  nfs:
+    path: /data/volumes/v5
+    server: 172.16.17.10
+
+# kubectl apply -f nfs-vol.yaml 
+persistentvolume "nfs-vol-01" created
+persistentvolume "nfs-vol-02" created
+persistentvolume "nfs-vol-03" created
+persistentvolume "nfs-vol-04" created
+persistentvolume "nfs-vol-05" created
+
+# kubectl get pv
+NAME               CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS        CLAIM                       STORAGECLASS   REASON    AGE
+nfs-vol-01         5Gi        RWO,RWX        Recycle          Available                                                          7s
+nfs-vol-02         5Gi        RWO            Recycle          Available                                                          7s
+nfs-vol-03         10Gi       RWO,RWX        Recycle          Available                                                          7s
+nfs-vol-04         15Gi       RWO            Recycle          Available                                                          7s
+nfs-vol-05         20Gi       RWO,RWX        Recycle          Available                                                          7s
+
+#创建一个PVC
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: my-pvc
+  namespace: default
+spec:
+  accessModes: ["ReadWriteOnce"] #pvc的访问模式一定是pv访问模式的子集
+  resources:
+    requests:
+      storage: 5Gi
+    
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-pvc
+  namespace: default
+spec:
+  containers:
+  - name: myapp
+    image: ikubernetes/myapp:v1
+    volumeMounts:
+    - name: html
+      mountPath: /usr/share/nginx/html
+  volumes:
+  - name: html
+    persistentVolumeClaim:
+      claimName: my-pvc
+
+# kubectl apply -f pod-pvc-vol.yaml
+persistentvolumeclaim "my-pvc" created
+pod "pod-pvc" created
+
+# kubectl get pvc
+NAME      STATUS    VOLUME       CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+my-pvc    Bound     nfs-vol-02   5Gi        RWO                           1m
+
+# kubectl get pv  #查看pv状态的变化，nfs-vol-02被 default名称空间下my-pvc申请并绑定
+NAME         CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM            STORAGECLASS   REASON    A
+nfs-vol-01   5Gi        RWO,RWX        Recycle          Available                                             9
+nfs-vol-02   5Gi        RWO            Recycle          Bound       default/my-pvc                            9
+nfs-vol-03   10Gi       RWO,RWX        Recycle          Available                                             9
+nfs-vol-04   15Gi       RWO            Recycle          Available                                             9
+nfs-vol-05   20Gi       RWO,RWX        Recycle          Available                                       
+
+# 查看下pod的创建信息
+# kubectl describe pod pod-pvc 
+......
+Volumes:
+  html:
+    Type:       PersistentVolumeClaim (a reference to a PersistentVolumeClaim in the same namespace)
+    ClaimName:  my-pvc
+    ReadOnly:   false
+  default-token-tcwjz:
+    Type:        Secret (a volume populated by a Secret)
+    SecretName:  default-token-tcwjz
+    Optional:    false
+QoS Class:       BestEffort
+Node-Selectors:  <none>
+Tolerations:     node.kubernetes.io/not-ready:NoExecute for 300s
+                 node.kubernetes.io/unreachable:NoExecute for 300s
+Events:
+  Type     Reason                 Age              From                 Message
+  ----     ------                 ----             ----                 -------
+  Warning  FailedScheduling       8m (x2 over 8m)  default-scheduler    pod has unbound PersistentVolumeClaims (repeated 2 times)
+  Normal   Scheduled              8m               default-scheduler    Successfully assigned pod-pvc to huoban-k8s-node01
+  Normal   SuccessfulMountVolume  8m               kubelet, huoban-k8s-node01  MountVolume.SetUp succeeded for volume "default-token-tcwjz"
+  Normal   SuccessfulMountVolume  8m               kubelet, huoban-k8s-node01  MountVolume.SetUp succeeded for volume "nfs-vol-02"
+  Normal   Pulled                 8m               kubelet, huoban-k8s-node01  Container image "ikubernetes/myapp:v1" already present on machine
+  Normal   Created                7m               kubelet, huoban-k8s-node01  Created container
+  Normal   Started                7m               kubelet, huoban-k8s-node01  Started container
+
+#注意：处于绑定状态下的pv无法直接被删除，如果需要删除被绑定的pv，需要先删除申请绑定的PVC
+```

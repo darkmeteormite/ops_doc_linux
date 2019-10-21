@@ -1,0 +1,187 @@
+## 一、Harbor简介
+**1.Harbor介绍**
+>Harbor是一个用于存储和分发Docker镜像的企业级Registry服务器，通过添加一些企业必需的功能特性，例如安全、标识和管理等，扩展了开源Docker Distribution。作为一个企业级私有Registry服务器，Harbor提供了更好的性能和安全。提升用户使用Registry构建和运行环境传输镜像的效率。Harbor支持安装在多个Registry节点的镜像资源复制，镜像全部保存在私有Registry中， 确保数据和知识产权在公司内部网络中管控。另外，Harbor也提供了高级的安全特性，诸如用户管理，访问控制和活动审计等。
+
+**2.Harbor特性**
+- 基于角色的访问控制 ：用户与Docker镜像仓库通过“项目”进行组织管理，一个用户可以对多个镜像仓库在同一命名空间（project）里有不同的权限。
+- 镜像复制 ： 镜像可以在多个Registry实例中复制（同步）。尤其适合于负载均衡，高可用，混合云和多云的场景。
+- 图形化用户界面 ： 用户可以通过浏览器来浏览，检索当前Docker镜像仓库，管理项目和命名空间。
+- AD/LDAP 支持 ： Harbor可以集成企业内部已有的AD/LDAP，用于鉴权认证管理。
+- 审计管理 ： 所有针对镜像仓库的操作都可以被记录追溯，用于审计管理。
+- 国际化 ： 已拥有英文、中文、德文、日文和俄文的本地化版本。更多的语言将会添加进来。
+- RESTful API ： RESTful API 提供给管理员对于Harbor更多的操控, 使得与其它管理软件集成变得更容易。
+- 部署简单 ： 提供在线和离线两种安装工具， 也可以安装到vSphere平台(OVA方式)虚拟设备。
+
+**3.Harbor组件**
+
+Harbor在架构上主要由6个组件构成：
+
+- Proxy：Harbor的registry, UI, token等服务，通过一个前置的反向代理统一接收浏览器、Docker客户端的请求，并将请求转发给后端不同的服务。
+
+- Registry： 负责储存Docker镜像，并处理docker push/pull 命令。由于我们要对用户进行访问控制，即不同用户对Docker image有不同的读写权限，Registry会指向一个token服务，强制用户的每次docker pull/push请求都要携带一个合法的token, Registry会通过公钥对token 进行解密验证。
+
+- Core services： 这是Harbor的核心功能，主要提供以下服务：
+
+- UI：提供图形化界面，帮助用户管理registry上的镜像（image）, 并对用户进行授权。
+
+- webhook：为了及时获取registry 上image状态变化的情况， 在Registry上配置webhook，把状态变化传递给UI模块。
+
+- token 服务：负责根据用户权限给每个docker push/pull命令签发token. Docker 客户端向Regiøstry服务发起的请求,如果不包含token，会被重定向到这里，获得token后再重新向Registry进行请求。
+
+- Database：为core services提供数据库服务，负责储存用户权限、审计日志、Docker image分组信息等数据。
+
+- Job Services：提供镜像远程复制功能，可以把本地镜像同步到其他Harbor实例中。
+
+- Log collector：为了帮助监控Harbor运行，负责收集其他组件的log，供日后进行分析。
+
+各个组件之间的关系如下图所示：
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20190912102603443.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2Jqd2YxMjU=,size_16,color_FFFFFF,t_70)
+
+## 二、安装和配置Harbor
+**1、环境准备**
+```
+CentOS Linux release 7.3.1611 (Core)
+docker-ce-18.06.1
+docker-compose version 1.21.2, build a133471
+harbor-v1.8.0
+```
+**2、安装docker**
+```
+# 使用阿里云镜像仓库
+wget https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo -O /etc/yum.repos.d/docker-ce.repo
+# 安装docker
+yum install -y docker-ce-18.06.1.ce-3   #可能找不到安装包
+yum -y install https://mirrors.aliyun.com/docker-ce/linux/centos/7/x86_64/stable/Packages/docker-ce-18.06.3.ce-3.el7.x86_64.rpm
+
+# 设置docker启动参数（可选）
+#  graph: 设置docker数据目录：选择比较大的分区（我这里是根目录就不需要配置了，默认为/var/lib/docker）
+#  exec-opts: 设置cgroup driver（默认是cgroupfs，不推荐设置systemd）
+#  insecure-registries：设置私有仓库
+
+cat > /etc/docker/daemon.json <<EOF
+{
+    "graph": "/data/docker",
+    "exec-opts": ["native.cgroupdriver=cgroupfs"],
+    "insecure-registries": ["http://192.168.101.11"]
+}
+EOF
+
+# 启动docker服务并加入开机启动项
+systemctl start docker && systemctl enable docker
+```
+**3、安装docker-compose**
+```
+curl -L https://mirrors.aliyun.com/docker-toolbox/linux/compose/1.21.2/docker-compose-Linux-x86_64 -o /usr/local/bin/docker-compose
+ chmod +x /usr/local/bin/docker-compose
+ # docker-compose --version
+docker-compose version 1.21.2, build a133471
+```
+**4、安装harbor**
+```
+1、下周安装包
+# wget https://storage.googleapis.com/harbor-releases/release-1.8.0/harbor-offline-installer-v1.8.1.tgz
+
+2、解压并修改配置文件
+# tar xf harbor-offline-installer-v1.8.1.tgz -C /usr/local
+# cd /usr/local/harbor
+
+node1上
+# vim harbor.yml
+hostname: 192.168.101.11
+
+node2上
+# vim harbor.yml
+hostname: 192.168.101.12
+
+3、执行安装脚本
+# ./install.sh
+
+✔ ----Harbor has been installed and started successfully.----   #看到这一行就表示成功了
+
+Now you should be able to visit the admin portal at http://192.168.101.12.
+For more details, please visit https://github.com/goharbor/harbor .
+
+4、启动和停止
+# docker-compose up -d  #启动
+# docker-compose down  #停止
+
+```
+**5、访问测试**
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20190916180918962.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2Jqd2YxMjU=,size_16,color_FFFFFF,t_70)
+
+## 三、测试上传并设置同步
+```
+1、下周镜像并提交
+# docker pull centos:7.6.1810
+# docker push 192.168.101.11/open/centos:7.6.1810
+The push refers to repository [192.168.101.11/open/centos]
+89169d87dbe2: Pushed
+7.6.1810: digest: sha256:747b2de199b6197a26eb1a24d69740d25483995842b2d2f75824095e9d1d19eb size: 529
+```
+2、访问页面测试
+
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20190916182540805.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2Jqd2YxMjU=,size_16,color_FFFFFF,t_70)
+3、设置目标主机
+![在这里插入图片描述](https://img-blog.csdnimg.cn/2019091618275514.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2Jqd2YxMjU=,size_16,color_FFFFFF,t_70)
+4、设置同步规则
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20190916190813686.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2Jqd2YxMjU=,size_16,color_FFFFFF,t_70)
+5、查看对端是否同步完成
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20190916190944288.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2Jqd2YxMjU=,size_16,color_FFFFFF,t_70)
+6、在另一台服务器上重复此步骤
+
+## 四、验证并测试高可用
+```
+1、安装nginx
+# yum -y install nginx
+
+2、配置负载均衡
+# cat hub.huoban.com.conf
+upstream huoban_hub {
+     server 192.168.101.11:80 max_fails=3 fail_timeout=10s;
+     server 192.168.101.12:80 max_fails=3 fail_timeout=10s;
+     ip_hash;
+}
+
+server {
+    listen 80;
+    server_name hub.huoban.com;
+    rewrite ^(.*)$  https://hub.huoban.com$1 permanent;
+}
+
+server {
+    listen 443 ssl;
+    server_name hub.huoban.com;
+    server_tokens off;
+    #proxy_set_header           Host $host;   #这一行不能要。加了之后会报错
+    proxy_set_header           X-Real-IP $remote_addr;
+    proxy_set_header           X-Forwarded-For $proxy_add_x_forwarded_for;
+    location / {
+        proxy_pass      http://huoban_hub;
+    }
+    access_log /data/logs/nginx/${host}_access.log combined;
+}
+```
+3、测试访问
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20190917142734469.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2Jqd2YxMjU=,size_16,color_FFFFFF,t_70)
+4、推拉镜像测试
+```
+# docker tag centos:7.6.1810 hub.huoban.com/open/centos:7.6.18101
+# docker push hub.huoban.com/open/centos:7.6.18101
+The push refers to repository [hub.huoban.com/open/centos]
+89169d87dbe2: Preparing
+denied: requested access to the resource is denied
+# docker login hub.huoban.com
+Username: admin
+Password:
+Login Succeeded
+# docker push hub.huoban.com/open/centos:7.6.18101
+The push refers to repository [hub.huoban.com/open/centos]
+89169d87dbe2: Layer already exists
+7.6.18101: digest: sha256:747b2de199b6197a26eb1a24d69740d25483995842b2d2f75824095e9d1d19eb size: 529
+# # docker pull hub.huoban.com/open/centos:7.6.18101
+Trying to pull repository hub.huoban.com/open/centos ...
+7.6.18101: Pulling from hub.huoban.com/open/centos
+ac9208207ada: Pull complete
+Digest: sha256:747b2de199b6197a26eb1a24d69740d25483995842b2d2f75824095e9d1d19eb
+Status: Downloaded newer image for hub.huoban.com/open/centos:7.6.18101
+```

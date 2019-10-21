@@ -29,12 +29,18 @@ RUN curl -fSL http://mirrors.aliyun.com/repo/epel-7.repo -o /etc/yum.repos.d/epe
     && tar xf percona-server-${MYSQL_VERSION}.tar.gz \
     && cd percona-server-${MYSQL_VERSION} \
     && cmake -DCMAKE_INSTALL_PREFIX=/usr/local/mysql -DMYSQL_DATADIR=/data/mysql -DSYSCONFDIR=/etc/my.cnf -DMYSQL_TCP_PORT=3306 -DWITH_INNOBASE_STORAGE_ENGINE=1 -DWITH_PARTITION_STORAGE_ENGINE=1 -DWITH_BLACKHOLE_STORAGE_ENGINE=1 -DWITH_MYISAM_STORAGE_ENGINE=1 -DENABLED_LOCAL_INFILE=1 -DDEFAULT_CHARSET=utf8 -DDEFAULT_COLLATION=utf8_general_ci -DENABLE_DTRACE=0 -DWITH_EXTRA_CHARSETS=all \
-    && make \
+    && NPROC=$(grep -c ^processor /proc/cpuinfo 2>/dev/null || 1) \
+    && make -j $NPROC \
     && make install \
     && /usr/local/mysql/scripts/mysql_install_db --user=mysql --datadir=/var/lib/mysql --basedir=/usr/local/mysql \
-    && cp /usr/local/mysql/
+    && ln -s /usr/local/mysql/include /usr/include/mysqld \
+    && echo "/usr/local/mysql/lib" > /etc/ld.so.conf.d/mysql.conf \
+    && ldconfig \
+    && ln -s /usr/local/mysql/bin/mysqld /bin/mysqld \
+    && rm -rf /usr/local/src/* \
+    && yum clean all
 
-
+COPY my.cnf /etc/my.cnf
 
 VOLUME /var/lib/mysql
 

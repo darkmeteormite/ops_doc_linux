@@ -6,3 +6,9 @@ mirrorlist=https://mirrors.fedoraproject.org/metalink?repo=epel-7&arch=$basearch
 failovermethod=priority
 enabled=1
 gpgcheck=0
+
+[pgdg10]
+name=PostgreSQL 10 $releasever - $basearch
+baseurl=https://download.postgresql.org/pub/repos/yum/10/redhat/rhel-$releasever-$basearch
+enabled=1
+gpgcheck=0

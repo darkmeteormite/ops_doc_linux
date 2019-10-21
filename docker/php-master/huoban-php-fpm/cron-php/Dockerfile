@@ -5,7 +5,8 @@ MAINTAINER HuoBan Docker Maintainers "zhangqiang@huoban.com"
 COPY epel.repo /etc/yum.repos.d/server.repo
 
 RUN set -ex ;\
-	yum install -y \
+         yum -y install postgresql10 \
+                postgresql10-devel \
 		autoconf \
 		file \
 		gcc \
@@ -23,9 +24,6 @@ RUN set -ex ;\
 	        libmcrypt-devel \
                 libtidy-devel \
  		bzip2-devel \
-		postgresql \
-    		postgresql-libs \
-		postgresql-devel \
                 ImageMagick-devel \
 	        freetype \
 		freetype-devel \
@@ -40,56 +38,74 @@ RUN set -ex ;\
 	yum clean all
 
 
-ENV PHP_EXTRA_CONFIGURE_ARGS --enable-fpm --with-fpm-user=www-data --with-fpm-group=www-data --with-bz2 --enable-calendar --enable-exif  --disable-rpath --disable-short-tags --enable-bcmath --enable-shmop --enable-sysvmsg --enable-sysvsem --with-tidy --enable-inline-optimization  --enable-mbregex  --with-mhash --enable-pcntl --enable-sockets --with-xmlrpc --enable-soap --enable-intl --with-pdo-pgsql
-ENV PHP_URL="http://mirrors.sohu.com/php/php-7.0.6.tar.xz"
-
 RUN set -ex ;\
         cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime ;\
-        mkdir -p /usr/local/etc/conf.d && useradd www-data;\
+        mkdir -p /data/conf/php7 ;\
 	\
 	mkdir -p /usr/src; \
 	cd /usr/src; \
 	\
-	wget -O php.tar.xz "$PHP_URL";\
-	mkdir /usr/src/php;tar -Jxf /usr/src/php.tar.xz -C /usr/src/php --strip-components=1 \
+	wget -O php.tar.gz "http://mirrors.sohu.com/php/php-7.0.6.tar.gz";\
+	mkdir /usr/src/php;tar xf /usr/src/php.tar.gz -C /usr/src/php --strip-components=1 \
 	&& cd /usr/src/php \
 	&& ./configure \
-		--with-config-file-path="/usr/local/etc/" \
-		--with-config-file-scan-dir="/usr/local/etc/conf.d" \
-		--with-gd \
-		--with-mysqli=mysqlnd \
+                --prefix="/usr/local/php7" \
+		--with-config-file-path="/data/conf/php7" \
+		--sysconfdir="/data/conf/php7" \
+                --enable-mysqlnd \
 		--with-pdo-mysql=mysqlnd \
-		--with-libxml-dir \
-		--with-iconv \
-		--enable-xml \
-		--disable-cgi \
-		--enable-ftp \
-		--enable-mbstring \
-		--enable-gd-native-ttf \
-		--enable-mysqlnd \
-		--with-curl \
-		--with-libedit \
-		--with-openssl \
-		--with-zlib \
-		--with-mcrypt \
-		--with-jpeg-dir \
+		--with-mysqli=mysqlnd \
+                --with-iconv \
 		--with-freetype-dir \
+		--with-jpeg-dir \
 		--with-png-dir \
 		--enable-zip \
-		$PHP_EXTRA_CONFIGURE_ARGS \
+		--with-zlib \
+                --with-bz2 \
+                --enable-calendar \
+                --enable-exif \
+		--with-libxml-dir \
+		--enable-xml \
+                --disable-rpath \
+                --disable-short-tags \
+                --enable-bcmath \
+                --enable-shmop \
+                --enable-sysvmsg \
+                --enable-sysvsem \
+                --with-tidy \
+                --enable-inline-optimization \
+		--with-curl \
+                --enable-mbregex \
+		--enable-mbstring \
+		--with-mcrypt \
+		--with-gd \
+		--enable-gd-native-ttf \
+		--with-openssl \
+                --with-mhash \
+                --enable-pcntl \
+                --enable-sockets \
+                --with-xmlrpc \
+                --enable-soap \
+                --enable-intl \
+                --with-pdo-pgsql=/usr/pgsql-10/bin \
+                --with-pgsql=/usr/pgsql-10/include \
+		--disable-cgi \
+		--enable-ftp \
+		--enable-fpm \
+		--with-libedit \
         && NPROC=$(grep -c ^processor /proc/cpuinfo 2>/dev/null || 1) \
 	&& make -j $NPROC \
 	&& make install \
-        && cp php.ini-production /usr/local/etc/conf.d/php.ini \
-        && sed -i 's@;date.timezone =@date.timezone = Asia/Shanghai@g' /usr/local/etc/conf.d/php.ini \
-	&& { find /usr/local/bin /usr/local/sbin -type f -executable -exec strip --strip-all '{}' + || true; } \
+        && cp php.ini-production /data/conf/php7/php.ini \
+        && sed -i 's@;date.timezone =@date.timezone = Asia/Shanghai@g' /data/conf/php7/php.ini \
+	&& { find /usr/local/php7/bin /usr/local/php7/sbin -type f -executable -exec strip --strip-all '{}' + || true; } \
 	&& make clean \
         && cd /usr/src/ \
-        && rm -rf php*
+        && rm -rf /usr/src/*
 
 
 RUN set -ex \
-	&& cd /usr/local/etc \
+	&& cd /data/conf/php7 \
 	&& if [ -d php-fpm.d ]; then \
 		sed 's!=NONE/!=!g' php-fpm.conf.default | tee php-fpm.conf > /dev/null; \
 		cp php-fpm.d/www.conf.default php-fpm.d/www.conf; \
@@ -121,31 +137,40 @@ RUN set -ex \
 		echo '[www]'; \
 		echo 'listen = [::]:9000'; \
 	} | tee php-fpm.d/zz-docker.conf \
-        && sed -i 's@pm.max_children = 5@pm.max_children = 100@g' /usr/local/etc/php-fpm.d/www.conf \
-        && sed -i 's@pm.start_servers = 2@pm.start_servers = 10@g' /usr/local/etc/php-fpm.d/www.conf \
-        && sed -i 's@pm.min_spare_servers = 1@pm.min_spare_servers = 5@g' /usr/local/etc/php-fpm.d/www.conf \
-        && sed -i 's@pm.max_spare_servers = 3@pm.max_spare_servers = 20@g' /usr/local/etc/php-fpm.d/www.conf \
-        && sed -i 's@upload_max_filesize = 2M@upload_max_filesize = 200M@g' /usr/local/etc/conf.d/php.ini \
+        && sed -i 's@pm.max_children = 5@pm.max_children = 100@g' /data/conf/php7/php-fpm.d/www.conf \
+        && sed -i 's@pm.start_servers = 2@pm.start_servers = 10@g' /data/conf/php7/php-fpm.d/www.conf \
+        && sed -i 's@pm.min_spare_servers = 1@pm.min_spare_servers = 5@g' /data/conf/php7/php-fpm.d/www.conf \
+        && sed -i 's@pm.max_spare_servers = 3@pm.max_spare_servers = 20@g' /data/conf/php7/php-fpm.d/www.conf \
+        && sed -i 's@upload_max_filesize = 2M@upload_max_filesize = 200M@g' /data/conf/php7/php.ini \
         && cd /usr/src \
         && wget http://pecl.php.net/get/imagick-3.4.3.tgz  \
         && tar xf imagick-3.4.3.tgz \
         && cd imagick-3.4.3 \
-        && /usr/local/bin/phpize \
-        && ./configure --with-php-config=/usr/local/bin/php-config \
+        && /usr/local/php7/bin/phpize \
+        && ./configure --with-php-config=/usr/local/php7/bin/php-config \
         && make \
         && make install \
         && cd /usr/src \
 	&& wget http://pecl.php.net/get/redis-3.1.2.tgz \
         && tar xf redis-3.1.2.tgz \
         && cd redis-3.1.2 \
-        && sh /usr/local/bin/phpize \
-        && ./configure --with-php-config=/usr/local/bin/php-config \
-        && ln -s /usr/local/bin/php /usr/local/bin/huoban_php \
+        && sh /usr/local/php7/bin/phpize \
+        && ./configure --with-php-config=/usr/local/php7/bin/php-config \
+        && make \
+        && make install \
         && cd /usr/src \
-        && rm -rf imagick* \
-        && rm -rf redis* \
-        && touch /var/log/cron.log 
+        && rm -rf /usr/src/* 
 
-COPY crontab /etc/cron.d/mq-cron
 
-CMD ["crond && tail -f /var/log/cron.log"]
+RUN set -ex \
+        && ln -s /usr/local/php7 /usr/local/php \
+        && ln -s /usr/local/php7/bin/php /usr/local/bin/huoban_php \
+        && ln -s /usr/local/php7/bin/* /usr/local/bin/ \
+        && ln -s /usr/local/php7/sbin/php-fpm /usr/local/bin/php-fpm \
+        && useradd -g 100 -u 100 user_00 \
+        && ln -s /usr/pgsql-10 /usr/local/pgsql \
+        && touch /tmp/crond.log
+
+COPY crontab /var/spool/cron/root
+
+CMD ["crond && tail -f /tmp/crond.log"]
