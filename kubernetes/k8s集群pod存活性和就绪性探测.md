@@ -2,7 +2,7 @@ k8s集群pod存活性和就绪性探测
 
 
 一、livenessProbe存活性探测
-
+```
 # kubectl explain pods.spec.containers.livenessProbe
 KIND:     Pod
 VERSION:  v1
@@ -51,10 +51,10 @@ FIELDS:
      Number of seconds after which the probe times out. Defaults to 1 second.
      Minimum value is 1. More info:
      https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle#container-probes
-
+```
 
 1、exec探针
-
+```
 # cat liveness-exec.yaml 
 apiVersion: v1
 kind: Pod
@@ -72,9 +72,9 @@ spec:
         command: ["test","-e","/tmp/healthy"]
       initialDelaySeconds: 2
       periodSeconds: 3
-
+```
 2、http探针
-
+```
 # cat liveness-httpget.yaml 
 apiVersion: v1
 kind: Pod
@@ -98,9 +98,9 @@ spec:
 
 # periodSeconds：代表每次探测时间间隔
 # initialDelaySeconds：代表初始化延迟时间，即在一个容器启动后如果直接开始探测那么很有可能会直接探测失败，需要给一个系统初始化的时间
-
+```
 3、TCPSocketAction
-
+```
 # cat tcp-liveness.yaml
 apiVersion: v1
 kind: Pod
@@ -128,11 +128,11 @@ timeoutSeconds <integer>：存活性探测的超时时长，显示为timeout属�
 periodSeconds <integer>：存活性探测的频度，显示为period属性，默认为10s，最小值为1s；过高的频率会对pod对象带来较大的额外开销，而过低的频率又会使得对错误的反应不及时。
 successThreshold <integer>：处于失败状态时，探测操作至少连续多少次的成功才被认为是通过检测，显示为#success属性，默认值为1，最小值也为1。
 failureThreshold：处于成功状态时，探测操作至少连续多少次的失败才被视为是检测不通过，显示为#failure属性，默认值为3，最小值为1。
-
+```
 
 二、readinessProbe就绪性探测
 
-
+```
 # vim rediness-httpget.yaml
 apiVersion: v1
 kind: Pod
@@ -172,11 +172,11 @@ readiness-httpget-pod   1/1     Running   0          35s
 NAME                    READY   STATUS    RESTARTS   AGE
 readiness-httpget-pod   0/1     Running   0          117s
 readiness-httpget-pod   1/1   Running   0     2m27s
-
+```
 
 
 三、示例
-
+```
 # cat nginx.yaml
 
 apiVersion: apps/v1 
@@ -224,3 +224,5 @@ spec:
             port: 80
           initialDelaySeconds: 3
           timeoutSeconds: 2
+
+```
